@@ -187,7 +187,7 @@ pub use self::concat::*;
 pub use self::conditions::*;
 #[cfg(feature = "sinks-console")]
 pub use self::console::*;
-#[cfg(feature = "sinks-datadog_events")]
+#[cfg(feature = "sinks-datadog")]
 pub use self::datadog_events::*;
 #[cfg(feature = "sinks-datadog_logs")]
 pub use self::datadog_logs::*;

@@ -1,5 +1,5 @@
 use crate::{
-    codecs::decoding::{DecodingConfig, DeserializerConfig, FramingConfig},
+    codecs::{DecodingConfig, FramingConfig, ParserConfig},
     config::{
         AcknowledgementsConfig, DataType, GenerateConfig, Resource, SourceConfig, SourceContext,
     },

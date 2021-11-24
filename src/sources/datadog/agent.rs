@@ -2,7 +2,7 @@ use crate::{
     codecs,
     event::Event,
     internal_events::HttpDecompressError,
-    sources::datadog::{logs, metrics, traces},
+    sources::datadog::{logs, traces},
     sources::util::ErrorMessage,
     Pipeline,
 };

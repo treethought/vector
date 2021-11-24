@@ -3,7 +3,7 @@ use crate::{
     config::{log_schema, SourceConfig, SourceContext},
     event::{Event, EventStatus},
     sources::datadog::{
-        config::DatadogAgentConfig,
+        DatadogAgentConfig,
         logs::{decode_log_body, LogMsg},
     },
     test_util::{next_addr, spawn_collect_n, trace_init, wait_for_tcp},
@@ -43,8 +43,7 @@ fn test_decode_body() {
 
         let decoder =
             codecs::Decoder::new(Box::new(BytesCodec::new()), Box::new(BytesParser::new()));
-        let source = DatadogAgentSource::new(true, decoder);
-        let events = source.decode_body(body, api_key).unwrap();
+        let events = decode_log_body(body, api_key, decoder).unwrap();
         assert_eq!(events.len(), msgs.len());
         for (msg, event) in msgs.into_iter().zip(events.into_iter()) {
             let log = event.as_log();
@@ -76,20 +75,19 @@ async fn source(
     let (sender, recv) = Pipeline::new_test_finalize(status);
     let address = next_addr();
     let context = SourceContext::new_test(sender);
+    let config = toml::from_str::<DatadogAgentConfig>(&format!(
+        indoc! { r#"
+            address = "{}"
+            compression = "none"
+            store_api_key = {}
+            acknowledgements = {}
+        "#},
+        address, store_api_key, acknowledgements
+    ))
+    .unwrap();
+
     tokio::spawn(async move {
-        DatadogAgentConfig {
-            address,
-            tls: None,
-            store_api_key,
-            framing: default_framing_message_based(),
-            decoding: default_decoding(),
-            acknowledgements: acknowledgements.into(),
-        }
-        .build(context)
-        .await
-        .unwrap()
-        .await
-        .unwrap();
+        config.build(context).await.unwrap().await.unwrap();
     });
     wait_for_tcp(address).await;
     (recv, address)

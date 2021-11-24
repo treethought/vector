@@ -4,7 +4,7 @@ use crate::{
     event::Event,
     internal_events::EventsReceived,
     sources::datadog::agent::{decode, handle_request, ApiKeyExtractor, ApiKeyQueryParams},
-    sources::util::{ErrorMessage, StreamDecodingError},
+    sources::util::{ErrorMessage, TcpError},
     vector_core::ByteSizeOf,
     Pipeline,
 };

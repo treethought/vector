@@ -7,13 +7,14 @@ use crate::{
     Pipeline,
 };
 use bytes::{Buf, Bytes};
+use dyn_clone::DynClone;
 use flate2::read::{MultiGzDecoder, ZlibDecoder};
 use futures::{SinkExt, StreamExt, TryFutureExt};
 use http::StatusCode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
-use std::{io::Read, sync::Arc};
+use std::{fmt::Debug, io::Read, sync::Arc};
 use vector_core::event::{BatchNotifier, BatchStatus};
 use warp::{filters::BoxedFilter, reject::Rejection, reply::Response, Filter, Reply};
 
@@ -23,6 +24,44 @@ pub(crate) enum ApiError {
     InvalidDataFormat,
     ServerShutdown,
 }
+
+/*#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum AgentKind {
+    Core,
+    Trace,
+}*/
+
+/*impl AgentKind {
+    fn build_warp_filter(
+        &self,
+        acknowledgements: bool,
+        out: Pipeline,
+        api_key_extractor: ApiKeyExtractor,
+        decoder: codecs::Decoder,
+    ) -> BoxedFilter<(Response,)> {
+        match self {
+            AgentKind::Core => {
+                logs::build_warp_filter(acknowledgements, out, api_key_extractor, decoder)
+            }
+            AgentKind::Trace => traces::build_warp_filter(acknowledgements, out, api_key_extractor),
+        }
+    }
+}*/
+
+#[typetag::serde(tag = "agent")]
+pub(crate) trait AgentKind: DynClone + Debug + Send + Sync {
+    fn build_warp_filter(
+        &self,
+        acknowledgements: bool,
+        out: Pipeline,
+        api_key_extractor: ApiKeyExtractor,
+        decoder: codecs::Decoder,
+    ) -> BoxedFilter<(Response,)>;
+}
+
+dyn_clone::clone_trait_object!(AgentKind);
+
 
 impl warp::reject::Reject for ApiError {}
 
@@ -35,7 +74,7 @@ pub struct ApiKeyQueryParams {
 #[derive(Clone)]
 pub(crate) struct DatadogAgentSource {
     acknowledgements: bool,
-    api_key_extractor: ApiKeyExtractor,
+    pub(crate) api_key_extractor: ApiKeyExtractor,
     decoder: codecs::Decoder,
     out: Pipeline,
 }
@@ -86,22 +125,21 @@ impl DatadogAgentSource {
         }
     }
 
-    pub(crate) fn build_warp_filters(
-        &self,
-        logs: bool,
-        traces: bool,
-        metrics: bool,
-    ) -> crate::Result<BoxedFilter<(Response,)>> {
-        let mut filters = logs.then(|| {
+  //  pub(crate) fn build_warp_filters(
+    //    &self,
+      //  logs: bool,
+      //  traces: bool,
+   // ) -> BoxedFilter<(Response,)> {
+/*        let mut filters = logs.then(|| {
             logs::build_warp_filter(
                 self.acknowledgements,
                 self.out.clone(),
                 self.api_key_extractor.clone(),
                 self.decoder.clone(),
             )
-        });
+        });*/
 
-        if traces {
+        /*if traces {
             let trace_filter = traces::build_warp_filter(
                 self.acknowledgements,
                 self.out.clone(),
@@ -110,7 +148,7 @@ impl DatadogAgentSource {
             filters = filters
                 .map(|f| f.or(trace_filter.clone()).unify().boxed())
                 .or(Some(trace_filter));
-        }
+        }*/
 
         if metrics {
             let metrics_filter = metrics::build_warp_filter(
@@ -123,8 +161,15 @@ impl DatadogAgentSource {
                 .or(Some(metrics_filter));
         }
 
-        filters.ok_or("At least one of the supported data type shall be enabled".into())
-    }
+        /*self.agent.build_warp_filter(
+            self.acknowledgements,
+            self.out.clone(),
+            self.api_key_extractor.clone(),
+            self.decoder.clone(),
+        )*/
+
+        // filters.ok_or("At least one of the supported data type shall be enabled".into())
+  //  }
 }
 
 pub(crate) async fn handle_request(

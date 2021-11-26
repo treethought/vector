@@ -5,7 +5,8 @@ use crate::{
     },
     serde::{bool_or_struct, default_decoding, default_framing_message_based},
     sources,
-    sources::datadog::agent::DatadogAgentSource,
+    sources::datadog::agent::{AgentKind, DatadogAgentSource},
+    sources::datadog::logs::Core,
     sources::util::ErrorMessage,
     tls::{MaybeTlsSettings, TlsConfig},
 };
@@ -28,11 +29,14 @@ pub struct DatadogAgentConfig {
     decoding: Box<dyn DeserializerConfig>,
     #[serde(default, deserialize_with = "bool_or_struct")]
     acknowledgements: AcknowledgementsConfig,
+    #[serde(flatten)]
+    agent: Box<dyn AgentKind>,
     #[serde(default = "crate::serde::default_true")]
     accept_logs: bool,
     #[serde(default = "crate::serde::default_true")]
     accept_traces: bool,
 }
+
 
 impl GenerateConfig for DatadogAgentConfig {
     fn generate_config() -> toml::Value {
@@ -45,6 +49,7 @@ impl GenerateConfig for DatadogAgentConfig {
             acknowledgements: AcknowledgementsConfig::default(),
             accept_logs: true,
             accept_traces: true,
+            agent: Box::new(Core{}),
         })
         .unwrap()
     }
@@ -57,15 +62,19 @@ impl SourceConfig for DatadogAgentConfig {
         let decoder = DecodingConfig::new(self.framing.clone(), self.decoding.clone()).build()?;
         let source = DatadogAgentSource::new(
             self.acknowledgements.enabled,
-            cx.out,
+            cx.out.clone(),
             self.store_api_key,
-            decoder,
+            decoder.clone(),
         );
 
         let tls = MaybeTlsSettings::from_config(&self.tls, true)?;
         let listener = tls.bind(&self.address).await?;
 
-        let filters = source.build_warp_filters(self.accept_logs, self.accept_traces, true)?;
+        let filters =  self.agent.build_warp_filter(
+            self.acknowledgements.enabled,
+            cx.out,
+            source.api_key_extractor,
+            decoder);
 
         let shutdown = cx.shutdown;
         Ok(Box::pin(async move {

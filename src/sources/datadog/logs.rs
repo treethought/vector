@@ -3,7 +3,7 @@ use crate::{
     config::log_schema,
     event::Event,
     internal_events::EventsReceived,
-    sources::datadog::agent::{decode, handle_request, ApiKeyExtractor, ApiKeyQueryParams},
+    sources::datadog::agent::{decode, handle_request, AgentKind, ApiKeyExtractor, ApiKeyQueryParams},
     sources::util::{ErrorMessage, TcpError},
     vector_core::ByteSizeOf,
     Pipeline,
@@ -16,41 +16,48 @@ use std::sync::Arc;
 use tokio_util::codec::Decoder;
 use warp::{filters::BoxedFilter, path, path::FullPath, reply::Response, Filter};
 
-pub(crate) fn build_warp_filter(
-    acknowledgements: bool,
-    out: Pipeline,
-    api_key_extractor: ApiKeyExtractor,
-    decoder: codecs::Decoder,
-) -> BoxedFilter<(Response,)> {
-    warp::post()
-        .and(path!("v1" / "input" / ..).or(path!("api" / "v2" / "logs" / ..)))
-        .and(warp::path::full())
-        .and(warp::header::optional::<String>("content-encoding"))
-        .and(warp::header::optional::<String>("dd-api-key"))
-        .and(warp::query::<ApiKeyQueryParams>())
-        .and(warp::body::bytes())
-        .and_then(
-            move |_,
-                  path: FullPath,
-                  encoding_header: Option<String>,
-                  api_token: Option<String>,
-                  query_params: ApiKeyQueryParams,
-                  body: Bytes| {
-                let events = decode(&encoding_header, body).and_then(|body| {
-                    decode_log_body(
-                        body,
-                        api_key_extractor.extract(
-                            path.as_str(),
-                            api_token,
-                            query_params.dd_api_key,
-                        ),
-                        decoder.clone(),
-                    )
-                });
-                handle_request(events, acknowledgements, out.clone())
-            },
-        )
-        .boxed()
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct LogsAgent;
+
+#[typetag::serde(name = "core")]
+impl AgentKind for LogsAgent {
+    fn build_warp_filter(
+        &self,
+        acknowledgements: bool,
+        out: Pipeline,
+        api_key_extractor: ApiKeyExtractor,
+        decoder: codecs::Decoder,
+    ) -> BoxedFilter<(Response,)> {
+        warp::post()
+            .and(path!("v1" / "input" / ..).or(path!("api" / "v2" / "logs" / ..)))
+            .and(warp::path::full())
+            .and(warp::header::optional::<String>("content-encoding"))
+            .and(warp::header::optional::<String>("dd-api-key"))
+            .and(warp::query::<ApiKeyQueryParams>())
+            .and(warp::body::bytes())
+            .and_then(
+                move |_,
+                    path: FullPath,
+                    encoding_header: Option<String>,
+                    api_token: Option<String>,
+                    query_params: ApiKeyQueryParams,
+                    body: Bytes| {
+                    let events = decode(&encoding_header, body).and_then(|body| {
+                        decode_log_body(
+                            body,
+                            api_key_extractor.extract(
+                                path.as_str(),
+                                api_token,
+                                query_params.dd_api_key,
+                            ),
+                            decoder.clone(),
+                        )
+                    });
+                    handle_request(events, acknowledgements, out.clone())
+                },
+            )
+            .boxed()
+    }
 }
 
 pub(crate) fn decode_log_body(

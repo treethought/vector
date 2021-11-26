@@ -3,8 +3,8 @@ use crate::{
     config::{log_schema, SourceConfig, SourceContext},
     event::{Event, EventStatus},
     sources::datadog::{
-        DatadogAgentConfig,
         logs::{decode_log_body, LogMsg},
+        DatadogAgentConfig,
     },
     test_util::{next_addr, spawn_collect_n, trace_init, wait_for_tcp},
     Pipeline,

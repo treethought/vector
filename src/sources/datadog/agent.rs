@@ -1,22 +1,130 @@
 use crate::{
-    codecs,
+    codecs::{self, DecodingConfig, FramingConfig, ParserConfig},
+    config::{
+        AcknowledgementsConfig, DataType, GenerateConfig, Resource, SourceConfig, SourceContext,
+    },
     event::Event,
     internal_events::HttpDecompressError,
-    sources::datadog::{logs, traces},
-    sources::util::ErrorMessage,
+    serde::{bool_or_struct, default_decoding, default_framing_message_based},
+    sources::{
+        self,
+        datadog::logs::LogsAgent,
+        util::ErrorMessage,
+    },
+    tls::{MaybeTlsSettings, TlsConfig},
     Pipeline,
 };
+
 use bytes::{Buf, Bytes};
 use dyn_clone::DynClone;
 use flate2::read::{MultiGzDecoder, ZlibDecoder};
-use futures::{SinkExt, StreamExt, TryFutureExt};
+use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt};
 use http::StatusCode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
-use std::{fmt::Debug, io::Read, sync::Arc};
+use std::{fmt::Debug, io::Read, net::SocketAddr, sync::Arc};
 use vector_core::event::{BatchNotifier, BatchStatus};
 use warp::{filters::BoxedFilter, reject::Rejection, reply::Response, Filter, Reply};
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DatadogAgentConfig {
+    address: SocketAddr,
+    tls: Option<TlsConfig>,
+    #[serde(default = "crate::serde::default_true")]
+    store_api_key: bool,
+
+    // Those are probably useless as we know input encoding
+    #[serde(default = "default_framing_message_based")]
+    framing: Box<dyn FramingConfig>,
+    #[serde(default = "default_decoding")]
+    decoding: Box<dyn ParserConfig>,
+    #[serde(default, deserialize_with = "bool_or_struct")]
+    acknowledgements: AcknowledgementsConfig,
+    #[serde(flatten)]
+    agent: Box<dyn AgentKind>,
+    #[serde(default = "crate::serde::default_true")]
+    accept_logs: bool,
+    #[serde(default = "crate::serde::default_true")]
+    accept_traces: bool,
+}
+
+impl GenerateConfig for DatadogAgentConfig {
+    fn generate_config() -> toml::Value {
+        toml::Value::try_from(Self {
+            address: "0.0.0.0:8080".parse().unwrap(),
+            tls: None,
+            store_api_key: true,
+            framing: default_framing_message_based(),
+            decoding: default_decoding(),
+            acknowledgements: AcknowledgementsConfig::default(),
+            accept_logs: true,
+            accept_traces: true,
+            agent: Box::new(LogsAgent {}),
+        })
+        .unwrap()
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde(name = "datadog_agent")]
+impl SourceConfig for DatadogAgentConfig {
+    async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
+        let decoder = DecodingConfig::new(self.framing.clone(), self.decoding.clone()).build()?;
+        let source = DatadogAgentSource::new(
+            self.acknowledgements.enabled,
+            cx.out.clone(),
+            self.store_api_key,
+            decoder.clone(),
+        );
+
+        let tls = MaybeTlsSettings::from_config(&self.tls, true)?;
+        let listener = tls.bind(&self.address).await?;
+
+        let filters = self.agent.build_warp_filter(
+            self.acknowledgements.enabled,
+            cx.out,
+            source.api_key_extractor,
+            decoder,
+        );
+
+        let shutdown = cx.shutdown;
+        Ok(Box::pin(async move {
+            let span = crate::trace::current_span();
+            let routes = filters
+                .with(warp::trace(move |_info| span.clone()))
+                .recover(|r: Rejection| async move {
+                    if let Some(e_msg) = r.find::<ErrorMessage>() {
+                        let json = warp::reply::json(e_msg);
+                        Ok(warp::reply::with_status(json, e_msg.status_code()))
+                    } else {
+                        // other internal error - will return 500 internal server error
+                        Err(r)
+                    }
+                });
+            warp::serve(routes)
+                .serve_incoming_with_graceful_shutdown(
+                    listener.accept_stream(),
+                    shutdown.map(|_| ()),
+                )
+                .await;
+
+            Ok(())
+        }))
+    }
+
+    fn output_type(&self) -> DataType {
+        DataType::Any
+    }
+
+    fn source_type(&self) -> &'static str {
+        "datadog_agent"
+    }
+
+    fn resources(&self) -> Vec<Resource> {
+        vec![Resource::tcp(self.address)]
+    }
+}
 
 #[derive(Clone, Copy, Debug, Snafu)]
 pub(crate) enum ApiError {
@@ -24,30 +132,6 @@ pub(crate) enum ApiError {
     InvalidDataFormat,
     ServerShutdown,
 }
-
-/*#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum AgentKind {
-    Core,
-    Trace,
-}*/
-
-/*impl AgentKind {
-    fn build_warp_filter(
-        &self,
-        acknowledgements: bool,
-        out: Pipeline,
-        api_key_extractor: ApiKeyExtractor,
-        decoder: codecs::Decoder,
-    ) -> BoxedFilter<(Response,)> {
-        match self {
-            AgentKind::Core => {
-                logs::build_warp_filter(acknowledgements, out, api_key_extractor, decoder)
-            }
-            AgentKind::Trace => traces::build_warp_filter(acknowledgements, out, api_key_extractor),
-        }
-    }
-}*/
 
 #[typetag::serde(tag = "agent")]
 pub(crate) trait AgentKind: DynClone + Debug + Send + Sync {
@@ -61,7 +145,6 @@ pub(crate) trait AgentKind: DynClone + Debug + Send + Sync {
 }
 
 dyn_clone::clone_trait_object!(AgentKind);
-
 
 impl warp::reject::Reject for ApiError {}
 

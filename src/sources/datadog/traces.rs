@@ -1,7 +1,8 @@
 use crate::{
+    codecs,
     config::log_schema,
     event::{Event, LogEvent, Value},
-    sources::datadog::agent::{decode, handle_request, ApiKeyExtractor, ApiKeyQueryParams},
+    sources::datadog::agent::{decode, handle_request, AgentKind, ApiKeyExtractor, ApiKeyQueryParams},
     sources::util::ErrorMessage,
     Pipeline,
 };
@@ -10,6 +11,7 @@ use chrono::{TimeZone, Utc};
 use futures::future;
 use http::StatusCode;
 use prost::Message;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use warp::{filters::BoxedFilter, path, path::FullPath, reply::Response, Filter, Rejection, Reply};
@@ -18,15 +20,23 @@ mod dd_proto {
     include!(concat!(env!("OUT_DIR"), "/pb.rs"));
 }
 
-pub(crate) fn build_warp_filter(
-    acknowledgements: bool,
-    out: Pipeline,
-    api_key_extractor: ApiKeyExtractor,
-) -> BoxedFilter<(Response,)> {
-    build_trace_filter(acknowledgements, out, api_key_extractor)
-        .or(build_stats_filter())
-        .unify()
-        .boxed()
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct TraceAgent;
+
+#[typetag::serde(name = "trace")]
+impl AgentKind for TraceAgent {
+    fn build_warp_filter(
+        &self,
+        acknowledgements: bool,
+        out: Pipeline,
+        api_key_extractor: ApiKeyExtractor,
+        _: codecs::Decoder,
+    ) -> BoxedFilter<(Response,)> {
+        build_trace_filter(acknowledgements, out, api_key_extractor)
+            .or(build_stats_filter())
+            .unify()
+            .boxed()
+    }
 }
 
 fn build_trace_filter(

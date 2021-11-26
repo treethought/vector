@@ -3,7 +3,9 @@ use crate::{
     config::log_schema,
     event::Event,
     internal_events::EventsReceived,
-    sources::datadog::agent::{decode, handle_request, AgentKind, ApiKeyExtractor, ApiKeyQueryParams},
+    sources::datadog::agent::{
+        decode, handle_request, AgentKind, ApiKeyExtractor, ApiKeyQueryParams,
+    },
     sources::util::{ErrorMessage, TcpError},
     vector_core::ByteSizeOf,
     Pipeline,
@@ -37,11 +39,11 @@ impl AgentKind for LogsAgent {
             .and(warp::body::bytes())
             .and_then(
                 move |_,
-                    path: FullPath,
-                    encoding_header: Option<String>,
-                    api_token: Option<String>,
-                    query_params: ApiKeyQueryParams,
-                    body: Bytes| {
+                      path: FullPath,
+                      encoding_header: Option<String>,
+                      api_token: Option<String>,
+                      query_params: ApiKeyQueryParams,
+                      body: Bytes| {
                     let events = decode(&encoding_header, body).and_then(|body| {
                         decode_log_body(
                             body,

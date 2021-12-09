@@ -4,7 +4,6 @@ mod tests;
 pub mod agent;
 pub mod logs;
 pub mod metrics;
-pub mod sketch_parser;
 pub mod traces;
 
 use crate::config::SourceDescription;

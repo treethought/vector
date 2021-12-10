@@ -1,9 +1,7 @@
 use crate::{
-    codecs,
-    config::log_schema,
     event::Event,
     internal_events::EventsReceived,
-    sources::datadog::agent::{decode, handle_request, ApiKeyExtractor, ApiKeyQueryParams},
+    sources::datadog::agent::{handle_request, ApiKeyQueryParams, DatadogAgentSource},
     sources::util::{ErrorMessage, StreamDecodingError},
     vector_core::ByteSizeOf,
     Pipeline,
@@ -19,8 +17,7 @@ use warp::{filters::BoxedFilter, path, path::FullPath, reply::Response, Filter};
 pub(crate) fn build_warp_filter(
     acknowledgements: bool,
     out: Pipeline,
-    api_key_extractor: ApiKeyExtractor,
-    decoder: codecs::Decoder,
+    source: DatadogAgentSource,
 ) -> BoxedFilter<(Response,)> {
     warp::post()
         .and(path!("v1" / "input" / ..).or(path!("api" / "v2" / "logs" / ..)))
@@ -36,17 +33,19 @@ pub(crate) fn build_warp_filter(
                   api_token: Option<String>,
                   query_params: ApiKeyQueryParams,
                   body: Bytes| {
-                let events = decode(&encoding_header, body).and_then(|body| {
-                    decode_log_body(
-                        body,
-                        api_key_extractor.extract(
-                            path.as_str(),
-                            api_token,
-                            query_params.dd_api_key,
-                        ),
-                        decoder.clone(),
-                    )
-                });
+                let events = source
+                    .decode(&encoding_header, body, path.as_str())
+                    .and_then(|body| {
+                        decode_log_body(
+                            body,
+                            source.api_key_extractor.extract(
+                                path.as_str(),
+                                api_token,
+                                query_params.dd_api_key,
+                            ),
+                            &source,
+                        )
+                    });
                 handle_request(events, acknowledgements, out.clone())
             },
         )
@@ -56,7 +55,7 @@ pub(crate) fn build_warp_filter(
 pub(crate) fn decode_log_body(
     body: Bytes,
     api_key: Option<Arc<str>>,
-    decoder: codecs::Decoder,
+    source: &DatadogAgentSource,
 ) -> Result<Vec<Event>, ErrorMessage> {
     if body.is_empty() {
         // The datadog agent may send an empty payload as a keep alive
@@ -78,7 +77,7 @@ pub(crate) fn decode_log_body(
     let mut decoded = Vec::new();
 
     for message in messages {
-        let mut decoder = decoder.clone();
+        let mut decoder = source.decoder.clone();
         let mut buffer = BytesMut::new();
         buffer.put(message.message);
         loop {
@@ -93,10 +92,10 @@ pub(crate) fn decode_log_body(
                             log.try_insert_flat("ddsource", message.ddsource.clone());
                             log.try_insert_flat("ddtags", message.ddtags.clone());
                             log.try_insert_flat(
-                                log_schema().source_type_key(),
+                                source.log_schema_source_type_key,
                                 Bytes::from("datadog_agent"),
                             );
-                            log.try_insert_flat(log_schema().timestamp_key(), now);
+                            log.try_insert_flat(source.log_schema_timestamp_key, now);
                             if let Some(k) = &api_key {
                                 log.metadata_mut().set_datadog_api_key(Some(Arc::clone(k)));
                             }

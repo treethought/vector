@@ -3,7 +3,7 @@ use crate::{
     config::log_schema,
     event::{metric::Metric, metric::MetricValue, Event, MetricKind},
     internal_events::EventsReceived,
-    sources::datadog::agent::{decode, handle_request, ApiKeyExtractor, ApiKeyQueryParams},
+    sources::datadog::agent::{handle_request, ApiKeyQueryParams, DatadogAgentSource},
     sources::util::ErrorMessage,
     vector_core::ByteSizeOf,
     Pipeline,
@@ -26,11 +26,10 @@ pub(crate) struct DatadogSeriesRequest {
 pub(crate) fn build_warp_filter(
     acknowledgements: bool,
     out: Pipeline,
-    api_key_extractor: ApiKeyExtractor,
+    source: DatadogAgentSource,
 ) -> BoxedFilter<(Response,)> {
-    let sketches_service =
-        sketches_service(api_key_extractor.clone(), acknowledgements, out.clone());
-    let series_v1_service = series_v1_service(api_key_extractor, acknowledgements, out.clone());
+    let sketches_service = sketches_service(acknowledgements, out.clone(), source.clone());
+    let series_v1_service = series_v1_service(acknowledgements, out.clone(), source);
     let series_v2_service = series_v2_service();
     sketches_service
         .or(series_v1_service)
@@ -41,9 +40,9 @@ pub(crate) fn build_warp_filter(
 }
 
 fn sketches_service(
-    api_key_extractor: ApiKeyExtractor,
     acknowledgements: bool,
     out: Pipeline,
+    source: DatadogAgentSource,
 ) -> BoxedFilter<(Response,)> {
     warp::post()
         .and(path!("api" / "beta" / "sketches" / ..))
@@ -58,16 +57,18 @@ fn sketches_service(
                   api_token: Option<String>,
                   query_params: ApiKeyQueryParams,
                   body: Bytes| {
-                let events = decode(&encoding_header, body).and_then(|body| {
-                    decode_datadog_sketches(
-                        body,
-                        api_key_extractor.extract(
-                            path.as_str(),
-                            api_token,
-                            query_params.dd_api_key,
-                        ),
-                    )
-                });
+                let events = source
+                    .decode(&encoding_header, body, path.as_str())
+                    .and_then(|body| {
+                        decode_datadog_sketches(
+                            body,
+                            source.api_key_extractor.extract(
+                                path.as_str(),
+                                api_token,
+                                query_params.dd_api_key,
+                            ),
+                        )
+                    });
                 handle_request(events, acknowledgements, out.clone())
             },
         )
@@ -75,9 +76,9 @@ fn sketches_service(
 }
 
 fn series_v1_service(
-    api_key_extractor: ApiKeyExtractor,
     acknowledgements: bool,
     out: Pipeline,
+    source: DatadogAgentSource,
 ) -> BoxedFilter<(Response,)> {
     warp::post()
         .and(path!("api" / "v1" / "series" / ..))
@@ -92,16 +93,18 @@ fn series_v1_service(
                   api_token: Option<String>,
                   query_params: ApiKeyQueryParams,
                   body: Bytes| {
-                let events = decode(&encoding_header, body).and_then(|body| {
-                    decode_datadog_series(
-                        body,
-                        api_key_extractor.extract(
-                            path.as_str(),
-                            api_token,
-                            query_params.dd_api_key,
-                        ),
-                    )
-                });
+                let events = source
+                    .decode(&encoding_header, body, path.as_str())
+                    .and_then(|body| {
+                        decode_datadog_series(
+                            body,
+                            source.api_key_extractor.extract(
+                                path.as_str(),
+                                api_token,
+                                query_params.dd_api_key,
+                            ),
+                        )
+                    });
                 handle_request(events, acknowledgements, out.clone())
             },
         )

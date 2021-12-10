@@ -8,7 +8,7 @@ use crate::{
         SourceContext,
     },
     event::Event,
-    internal_events::HttpDecompressError,
+    internal_events::{HttpBytesReceived, HttpDecompressError},
     serde::{bool_or_struct, default_decoding, default_framing_message_based},
     sources::{
         self,
@@ -68,20 +68,6 @@ impl GenerateConfig for DatadogAgentConfig {
         .unwrap()
     }
 }
-
-// Trait to abstract any agent route + decoding
-/*#[typetag::serde(tag = "agent")]
-pub(crate) trait AgentKind: DynClone + Debug + Send + Sync {
-    fn build_warp_filter(
-        &self,
-        acknowledgements: bool,
-        out: Pipeline,
-        api_key_extractor: ApiKeyExtractor,
-        decoder: codecs::Decoder,
-    ) -> BoxedFilter<(Response,)>;
-}
-
-dyn_clone::clone_trait_object!(AgentKind);*/
 
 #[async_trait::async_trait]
 #[typetag::serde(name = "datadog_agent")]
@@ -155,9 +141,9 @@ pub struct ApiKeyQueryParams {
 #[derive(Clone)]
 pub(crate) struct DatadogAgentSource {
     pub(crate) api_key_extractor: ApiKeyExtractor,
-    log_schema_timestamp_key: &'static str,
-    log_schema_source_type_key: &'static str,
-    decoder: codecs::Decoder,
+    pub(crate) log_schema_timestamp_key: &'static str,
+    pub(crate) log_schema_source_type_key: &'static str,
+    pub(crate) decoder: codecs::Decoder,
     protocol: &'static str,
 }
 
@@ -215,38 +201,67 @@ impl DatadogAgentSource {
         metrics: bool,
         traces: bool,
     ) -> crate::Result<BoxedFilter<(Response,)>> {
-        let mut filters = logs.then(|| {
-            logs::build_warp_filter(
-                acknowledgements,
-                out.clone(),
-                self.api_key_extractor.clone(),
-                self.decoder.clone(),
-            )
-        });
+        let mut filters =
+            logs.then(|| logs::build_warp_filter(acknowledgements, out.clone(), self.clone()));
 
         if traces {
-            let trace_filter = traces::build_warp_filter(
-                acknowledgements,
-                out.clone(),
-                self.api_key_extractor.clone(),
-            );
+            let trace_filter =
+                traces::build_warp_filter(acknowledgements, out.clone(), self.clone());
             filters = filters
                 .map(|f| f.or(trace_filter.clone()).unify().boxed())
                 .or(Some(trace_filter));
         }
 
         if metrics {
-            let metrics_filter = metrics::build_warp_filter(
-                acknowledgements,
-                out.clone(),
-                self.api_key_extractor.clone(),
-            );
+            let metrics_filter =
+                metrics::build_warp_filter(acknowledgements, out.clone(), self.clone());
             filters = filters
                 .map(|f| f.or(metrics_filter.clone()).unify().boxed())
                 .or(Some(metrics_filter));
         }
 
         filters.ok_or("At least one of the supported data type shall be enabled".into())
+    }
+
+    pub(crate) fn decode(
+        &self,
+        header: &Option<String>,
+        mut body: Bytes,
+        path: &str,
+    ) -> Result<Bytes, ErrorMessage> {
+        if let Some(encodings) = header {
+            for encoding in encodings.rsplit(',').map(str::trim) {
+                body = match encoding {
+                    "identity" => body,
+                    "gzip" | "x-gzip" => {
+                        let mut decoded = Vec::new();
+                        MultiGzDecoder::new(body.reader())
+                            .read_to_end(&mut decoded)
+                            .map_err(|error| handle_decode_error(encoding, error))?;
+                        decoded.into()
+                    }
+                    "deflate" | "x-deflate" => {
+                        let mut decoded = Vec::new();
+                        ZlibDecoder::new(body.reader())
+                            .read_to_end(&mut decoded)
+                            .map_err(|error| handle_decode_error(encoding, error))?;
+                        decoded.into()
+                    }
+                    encoding => {
+                        return Err(ErrorMessage::new(
+                            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                            format!("Unsupported encoding {}", encoding),
+                        ))
+                    }
+                }
+            }
+        }
+        emit!(&HttpBytesReceived {
+            byte_size: body.len(),
+            http_path: path,
+            protocol: self.protocol,
+        });
+        Ok(body)
     }
 }
 
@@ -286,46 +301,6 @@ pub(crate) async fn handle_request(
         }
         Err(err) => Err(warp::reject::custom(err)),
     }
-}
-
-pub(crate) fn decode(header: &Option<String>, mut body: Bytes) -> Result<Bytes, ErrorMessage> {
-    if let Some(encodings) = header {
-        for encoding in encodings.rsplit(',').map(str::trim) {
-            body = match encoding {
-                "identity" => body,
-                "gzip" | "x-gzip" => {
-                    let mut decoded = Vec::new();
-                    MultiGzDecoder::new(body.reader())
-                        .read_to_end(&mut decoded)
-                        .map_err(|error| handle_decode_error(encoding, error))?;
-                    decoded.into()
-                }
-                "deflate" | "x-deflate" => {
-                    let mut decoded = Vec::new();
-                    ZlibDecoder::new(body.reader())
-                        .read_to_end(&mut decoded)
-                        .map_err(|error| handle_decode_error(encoding, error))?;
-                    decoded.into()
-                }
-                encoding => {
-                    return Err(ErrorMessage::new(
-                        StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                        format!("Unsupported encoding {}", encoding),
-                    ))
-                }
-            }
-        }
-    }
-    //emit!(&DatadogAgentRequestReceived {
-    //    byte_size: body.len(),
-    //    count: 1,
-    //}); => to be dropped and replaced by
-    // emit!(&HttpBytesReceived {
-    //    byte_size: body.len(),
-    //    http_path: path.as_str(),
-    //   protocol: self.protocol,
-    // });
-    Ok(body)
 }
 
 fn handle_decode_error(encoding: &str, error: impl std::error::Error) -> ErrorMessage {

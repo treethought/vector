@@ -7,7 +7,7 @@ use crate::{
         Event, EventStatus,
     },
     sources::datadog::{
-        agent::DatadogAgentConfig,
+        agent::{DatadogAgentConfig, DatadogAgentSource},
         logs::{decode_log_body, LogMsg},
         metrics::DatadogSeriesRequest,
     },
@@ -56,7 +56,8 @@ fn test_decode_log_body() {
             Box::new(BytesDecoder::new()),
             Box::new(BytesDeserializer::new()),
         );
-        let events = decode_log_body(body, api_key, decoder).unwrap();
+        let source = DatadogAgentSource::new(true, decoder, "http");
+        let events = decode_log_body(body, api_key, &source).unwrap();
         assert_eq!(events.len(), msgs.len());
         for (msg, event) in msgs.into_iter().zip(events.into_iter()) {
             let log = event.as_log();

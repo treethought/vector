@@ -1,8 +1,10 @@
 use crate::{
     config::log_schema,
     event::{Event, LogEvent, Value},
-    sources::datadog::agent::{decode, handle_request, ApiKeyExtractor, ApiKeyQueryParams},
+    internal_events::EventsReceived,
+    sources::datadog::agent::{handle_request, ApiKeyQueryParams, DatadogAgentSource},
     sources::util::ErrorMessage,
+    vector_core::ByteSizeOf,
     Pipeline,
 };
 use bytes::Bytes;
@@ -21,18 +23,18 @@ mod dd_proto {
 pub(crate) fn build_warp_filter(
     acknowledgements: bool,
     out: Pipeline,
-    api_key_extractor: ApiKeyExtractor,
+    source: DatadogAgentSource,
 ) -> BoxedFilter<(Response,)> {
-    build_trace_filter(acknowledgements, out, api_key_extractor)
+    build_trace_filter(acknowledgements, out, source)
         .or(build_stats_filter())
         .unify()
         .boxed()
 }
 
-fn build_trace_filter(
+fn build_trace_filter<'a>(
     acknowledgements: bool,
     out: Pipeline,
-    api_key_extractor: ApiKeyExtractor,
+    source: DatadogAgentSource,
 ) -> BoxedFilter<(Response,)> {
     warp::post()
         .and(path!("api" / "v0.2" / "traces" / ..))
@@ -53,23 +55,25 @@ fn build_trace_filter(
                   body: Bytes| {
                 warn!(message = "/api/v0.2/traces route is not yet fully supported.");
 
-                let events = decode(&encoding_header, body).and_then(|body| {
-                    decode_dd_trace_payload(
-                        body,
-                        api_key_extractor.extract(
-                            path.as_str(),
-                            api_token,
-                            query_params.dd_api_key,
-                        ),
-                        reported_language.as_ref(),
-                    )
-                    .map_err(|error| {
-                        ErrorMessage::new(
-                            StatusCode::UNPROCESSABLE_ENTITY,
-                            format!("Error decoding Datadog traces: {:?}", error),
+                let events = source
+                    .decode(&encoding_header, body, path.as_str())
+                    .and_then(|body| {
+                        decode_dd_trace_payload(
+                            body,
+                            source.api_key_extractor.extract(
+                                path.as_str(),
+                                api_token,
+                                query_params.dd_api_key,
+                            ),
+                            reported_language.as_ref(),
                         )
-                    })
-                });
+                        .map_err(|error| {
+                            ErrorMessage::new(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                format!("Error decoding Datadog traces: {:?}", error),
+                            )
+                        })
+                    });
                 handle_request(events, acknowledgements, out.clone())
             },
         )
@@ -121,6 +125,12 @@ fn decode_dd_trace_payload(
             log_event.into()
         })
         .collect();
+
+    emit!(&EventsReceived {
+        byte_size: trace_events.size_of(),
+        count: trace_events.len(),
+    });
+
     Ok(trace_events)
 }
 

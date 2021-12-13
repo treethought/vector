@@ -31,7 +31,7 @@ pub(crate) fn build_warp_filter(
         .boxed()
 }
 
-fn build_trace_filter<'a>(
+fn build_trace_filter(
     acknowledgements: bool,
     out: Pipeline,
     source: DatadogAgentSource,
@@ -184,7 +184,7 @@ fn convert_span(dd_span: &dd_proto::Span) -> BTreeMap<String, Value> {
             dd_span
                 .metrics
                 .iter()
-                .map(|(k, v)| (k.clone(), Value::from(v.clone())))
+                .map(|(k, v)| (k.clone(), Value::from(v)))
                 .collect::<BTreeMap<String, Value>>(),
         ),
     );

@@ -214,13 +214,13 @@ impl DatadogAgentSource {
 
         if metrics {
             let metrics_filter =
-                metrics::build_warp_filter(acknowledgements, out.clone(), self.clone());
+                metrics::build_warp_filter(acknowledgements, out, self.clone());
             filters = filters
                 .map(|f| f.or(metrics_filter.clone()).unify().boxed())
                 .or(Some(metrics_filter));
         }
 
-        filters.ok_or("At least one of the supported data type shall be enabled".into())
+        filters.ok_or_else(|| "At least one of the supported data type shall be enabled".into())
     }
 
     pub(crate) fn decode(

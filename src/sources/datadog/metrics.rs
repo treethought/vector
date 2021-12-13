@@ -29,7 +29,7 @@ pub(crate) fn build_warp_filter(
     source: DatadogAgentSource,
 ) -> BoxedFilter<(Response,)> {
     let sketches_service = sketches_service(acknowledgements, out.clone(), source.clone());
-    let series_v1_service = series_v1_service(acknowledgements, out.clone(), source);
+    let series_v1_service = series_v1_service(acknowledgements, out, source);
     let series_v2_service = series_v2_service();
     sketches_service
         .or(series_v1_service)

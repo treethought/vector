@@ -1,5 +1,4 @@
 use crate::{
-    config::log_schema,
     event::{Event, LogEvent, Value},
     internal_events::EventsReceived,
     sources::datadog::agent::{handle_request, ApiKeyQueryParams, DatadogAgentSource},
@@ -53,8 +52,6 @@ fn build_trace_filter(
                   reported_language: Option<String>,
                   query_params: ApiKeyQueryParams,
                   body: Bytes| {
-                warn!(message = "/api/v0.2/traces route is not yet fully supported.");
-
                 let events = source
                     .decode(&encoding_header, body, path.as_str())
                     .and_then(|body| {
@@ -66,6 +63,7 @@ fn build_trace_filter(
                                 query_params.dd_api_key,
                             ),
                             reported_language.as_ref(),
+                            &source,
                         )
                         .map_err(|error| {
                             ErrorMessage::new(
@@ -95,6 +93,7 @@ fn decode_dd_trace_payload(
     frame: Bytes,
     api_key: Option<Arc<str>>,
     lang: Option<&String>,
+    source: &DatadogAgentSource,
 ) -> crate::Result<Vec<Event>> {
     let decoded_payload = dd_proto::TracePayload::decode(frame)?;
     let env = decoded_payload.env;
@@ -103,14 +102,16 @@ fn decode_dd_trace_payload(
     let trace_events: Vec<Event> = decoded_payload
         .traces
         .iter()
-        .map(|dd_traces| into_event(dd_traces, env.clone(), hostname.clone()))
+        .map(|dd_traces| into_event(dd_traces, env.clone(), hostname.clone(), source))
         //... and each APM event is also map into its own event
         .chain(decoded_payload.transactions.iter().map(|s| {
             let mut log_event = LogEvent::from(convert_span(s));
-            log_event.insert(log_schema().source_type_key(), Bytes::from("datadog_agent"));
-            log_event.insert("hostname", hostname.clone());
+            log_event.insert(
+                source.log_schema_source_type_key,
+                Bytes::from("datadog_agent"),
+            );
+            log_event.insert(source.log_schema_host_key, hostname.clone());
             log_event.insert("env", env.clone());
-            log_event.insert("type", Bytes::from("apm_events"));
             log_event
         }))
         .map(|mut log_event| {
@@ -134,10 +135,18 @@ fn decode_dd_trace_payload(
     Ok(trace_events)
 }
 
-fn into_event(dd_trace: &dd_proto::ApiTrace, env: String, hostname: String) -> LogEvent {
+fn into_event(
+    dd_trace: &dd_proto::ApiTrace,
+    env: String,
+    hostname: String,
+    source: &DatadogAgentSource,
+) -> LogEvent {
     let mut log_event = LogEvent::default();
-    log_event.insert(log_schema().source_type_key(), Bytes::from("datadog_agent"));
-    log_event.insert("hostname", hostname);
+    log_event.insert(
+        source.log_schema_source_type_key,
+        Bytes::from("datadog_agent"),
+    );
+    log_event.insert(source.log_schema_host_key, hostname);
     log_event.insert("env", env);
 
     log_event.insert("trace_id", dd_trace.trace_id as i64);

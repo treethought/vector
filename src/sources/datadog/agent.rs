@@ -141,6 +141,7 @@ pub struct ApiKeyQueryParams {
 #[derive(Clone)]
 pub(crate) struct DatadogAgentSource {
     pub(crate) api_key_extractor: ApiKeyExtractor,
+    pub(crate) log_schema_host_key: &'static str,
     pub(crate) log_schema_timestamp_key: &'static str,
     pub(crate) log_schema_source_type_key: &'static str,
     pub(crate) decoder: codecs::Decoder,
@@ -186,6 +187,7 @@ impl DatadogAgentSource {
                 matcher: Regex::new(r"^/v1/input/(?P<api_key>[[:alnum:]]{32})/??")
                     .expect("static regex always compiles"),
             },
+            log_schema_host_key: log_schema().host_key(),
             log_schema_source_type_key: log_schema().source_type_key(),
             log_schema_timestamp_key: log_schema().timestamp_key(),
             decoder,
@@ -213,8 +215,7 @@ impl DatadogAgentSource {
         }
 
         if metrics {
-            let metrics_filter =
-                metrics::build_warp_filter(acknowledgements, out, self.clone());
+            let metrics_filter = metrics::build_warp_filter(acknowledgements, out, self.clone());
             filters = filters
                 .map(|f| f.or(metrics_filter.clone()).unify().boxed())
                 .or(Some(metrics_filter));

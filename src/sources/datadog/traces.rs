@@ -184,7 +184,7 @@ fn convert_span(dd_span: &dd_proto::Span) -> BTreeMap<String, Value> {
             dd_span
                 .metrics
                 .iter()
-                .map(|(k, v)| (k.clone(), Value::from(v)))
+                .map(|(k, v)| (k.clone(), Value::from(*v)))
                 .collect::<BTreeMap<String, Value>>(),
         ),
     );

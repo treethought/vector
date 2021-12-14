@@ -5,7 +5,7 @@ ARG DEBIAN_VERSION=bullseye
 # VECTOR BUILDER
 #
 FROM docker.io/rust:${RUST_VERSION}-${DEBIAN_VERSION} as builder
-RUN apt-get update && apt-get -y install build-essential git clang cmake libclang-dev libsasl2-dev libstdc++-10-dev libssl-dev libxxhash-dev zlib1g-dev zlib1g
+RUN apt-get update && apt-get -y install build-essential git clang cmake libatomic-ops-dev libclang-dev libsasl2-dev libstdc++-10-dev libssl-dev libxxhash-dev zlib1g-dev zlib1g
 RUN git clone https://github.com/rui314/mold.git
 RUN cd mold && git checkout v0.9.6 && make -j$(nproc) && make install
 WORKDIR vector

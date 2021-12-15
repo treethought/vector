@@ -9,6 +9,7 @@ publish = false
 parser = { package = "vrl-parser", path = "../parser" }
 shared = { path = "../../shared", default-features = false }
 enrichment = { path = "../../enrichment" }
+snmalloc-rs = { version = "0.2" }
 stdlib = { package = "vrl-stdlib", path = "../stdlib" }
 vrl = { path = "../core" }
 
@@ -22,6 +23,3 @@ serde = "1"
 serde_json = "1"
 structopt = { version = "0.3", default-features = false }
 tracing-subscriber = { version = "0.2.25", default-features = false, features = ["fmt"] }
-
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { version = "0.4.1" }

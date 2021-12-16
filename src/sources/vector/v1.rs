@@ -69,7 +69,7 @@ impl VectorConfig {
     }
 
     pub(super) const fn output_type(&self) -> DataType {
-        DataType::Any
+        DataType::all()
     }
 
     pub(super) const fn source_type(&self) -> &'static str {

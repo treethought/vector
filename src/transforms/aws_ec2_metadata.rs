@@ -169,11 +169,11 @@ impl TransformConfig for Ec2Metadata {
     }
 
     fn input_type(&self) -> DataType {
-        DataType::Any
+        DataType::Metric & DataType::Log
     }
 
     fn output_type(&self) -> DataType {
-        DataType::Any
+        DataType::Metric & DataType::Log
     }
 
     fn transform_type(&self) -> &'static str {

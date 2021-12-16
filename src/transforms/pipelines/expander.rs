@@ -43,14 +43,14 @@ impl TransformConfig for ExpanderConfig {
         self.inner
             .first()
             .map(|(_, item)| item.input_type())
-            .unwrap_or(DataType::Any)
+            .unwrap_or(DataType::all())
     }
 
     fn output_type(&self) -> DataType {
         self.inner
             .last()
             .map(|(_, item)| item.output_type())
-            .unwrap_or(DataType::Any)
+            .unwrap_or(DataType::all())
     }
 
     fn transform_type(&self) -> &'static str {

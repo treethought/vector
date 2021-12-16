@@ -1,14 +1,23 @@
 use crate::config::{ComponentKey, GlobalOptions};
 use async_trait::async_trait;
+use bitmask_enum::bitmask;
 use indexmap::IndexMap;
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[bitmask(u8)]
+pub enum DataType {
+    Log,
+    Trace,
+    Metric,
+}
+
+/*
 pub enum DataType {
     Any,
     Log,
     Metric,
 }
+*/
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub enum ExpandType {

@@ -92,11 +92,11 @@ impl LuaConfig {
     }
 
     pub const fn input_type(&self) -> DataType {
-        DataType::Any
+        DataType::all()
     }
 
     pub const fn output_type(&self) -> DataType {
-        DataType::Any
+        DataType::all()
     }
 
     pub const fn transform_type(&self) -> &'static str {

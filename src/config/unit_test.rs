@@ -104,6 +104,7 @@ fn event_to_string(event: &Event) -> String {
     match event {
         Event::Log(log) => serde_json::to_string(&log).unwrap_or_else(|_| "{}".into()),
         Event::Metric(metric) => serde_json::to_string(&metric).unwrap_or_else(|_| "{}".into()),
+        Event::Trace(trace) => serde_json::to_string(&trace).unwrap_or_else(|_| "{}".into()),
     }
 }
 

@@ -198,7 +198,7 @@ impl Ec2MetadataTransform {
     fn transform_one(&mut self, mut event: Event) -> Event {
         if let Ok(state) = self.state.read() {
             match event {
-                Event::Log(ref mut log) => {
+                Event::Log(ref mut log) | Event::Trace(ref mut log) => {
                     state.iter().for_each(|(k, v)| {
                         log.insert(k.clone(), v.clone());
                     });

@@ -130,7 +130,7 @@ impl Remap {
 
     fn annotate_dropped(&self, event: &mut Event, reason: &str, error: ExpressionError) {
         match event {
-            Event::Log(ref mut log) => {
+            Event::Log(ref mut log) | Event::Trace(ref mut log) => {
                 log.insert(
                     log_schema().metadata_key(),
                     serde_json::json!({

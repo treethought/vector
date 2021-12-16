@@ -8,6 +8,7 @@ impl<'a> ToLua<'a> for Event {
         match self {
             Event::Log(log) => table.raw_set("log", log.to_lua(lua)?)?,
             Event::Metric(metric) => table.raw_set("metric", metric.to_lua(lua)?)?,
+            Event::Trace(trace) => table.raw_set("trace", trace.to_lua(lua)?)?,
         }
         Ok(LuaValue::Table(table))
     }

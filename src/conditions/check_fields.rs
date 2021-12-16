@@ -54,26 +54,28 @@ impl EqualsPredicate {
 impl CheckFieldsPredicate for EqualsPredicate {
     fn check(&self, event: &Event) -> bool {
         match event {
-            Event::Log(l) => l.get(&self.target).map_or(false, |v| match &self.arg {
-                CheckFieldsPredicateArg::String(s) => s.as_bytes() == v.as_bytes(),
-                CheckFieldsPredicateArg::VecString(ss) => {
-                    ss.iter().any(|s| s.as_bytes() == v.as_bytes())
-                }
-                CheckFieldsPredicateArg::Integer(i) => match v {
-                    Value::Integer(vi) => *i == *vi,
-                    Value::Float(vf) => *i == *vf as i64,
-                    _ => false,
-                },
-                CheckFieldsPredicateArg::Float(f) => match v {
-                    Value::Float(vf) => *f == *vf,
-                    Value::Integer(vi) => *f == *vi as f64,
-                    _ => false,
-                },
-                CheckFieldsPredicateArg::Boolean(b) => match v {
-                    Value::Boolean(vb) => *b == *vb,
-                    _ => false,
-                },
-            }),
+            Event::Log(l) | Event::Trace(l) => {
+                l.get(&self.target).map_or(false, |v| match &self.arg {
+                    CheckFieldsPredicateArg::String(s) => s.as_bytes() == v.as_bytes(),
+                    CheckFieldsPredicateArg::VecString(ss) => {
+                        ss.iter().any(|s| s.as_bytes() == v.as_bytes())
+                    }
+                    CheckFieldsPredicateArg::Integer(i) => match v {
+                        Value::Integer(vi) => *i == *vi,
+                        Value::Float(vf) => *i == *vf as i64,
+                        _ => false,
+                    },
+                    CheckFieldsPredicateArg::Float(f) => match v {
+                        Value::Float(vf) => *f == *vf,
+                        Value::Integer(vi) => *f == *vi as f64,
+                        _ => false,
+                    },
+                    CheckFieldsPredicateArg::Boolean(b) => match v {
+                        Value::Boolean(vb) => *b == *vb,
+                        _ => false,
+                    },
+                })
+            }
             Event::Metric(m) => m
                 .tags()
                 .and_then(|t| t.get(&self.target))
@@ -233,13 +235,14 @@ impl NotEqualsPredicate {
 impl CheckFieldsPredicate for NotEqualsPredicate {
     fn check(&self, event: &Event) -> bool {
         match event {
-            Event::Log(l) => l
-                .get(&self.target)
-                .map(|f| f.as_bytes())
-                .map_or(false, |b| {
-                    //false if any match, else true
-                    !self.arg.iter().any(|s| b == s.as_bytes())
-                }),
+            Event::Log(l) | Event::Trace(l) => {
+                l.get(&self.target)
+                    .map(|f| f.as_bytes())
+                    .map_or(false, |b| {
+                        //false if any match, else true
+                        !self.arg.iter().any(|s| b == s.as_bytes())
+                    })
+            }
             Event::Metric(m) => m
                 .tags()
                 .and_then(|t| t.get(&self.target))
@@ -276,7 +279,7 @@ impl RegexPredicate {
 impl CheckFieldsPredicate for RegexPredicate {
     fn check(&self, event: &Event) -> bool {
         match event {
-            Event::Log(log) => log
+            Event::Log(log) | Event::Trace(log) => log
                 .get(&self.target)
                 .map(|field| field.to_string_lossy())
                 .map_or(false, |field| self.regex.is_match(&field)),
@@ -311,7 +314,7 @@ impl ExistsPredicate {
 impl CheckFieldsPredicate for ExistsPredicate {
     fn check(&self, event: &Event) -> bool {
         (match event {
-            Event::Log(l) => l.get(&self.target).is_some(),
+            Event::Log(l) | Event::Trace(l) => l.get(&self.target).is_some(),
             Event::Metric(m) => m.tags().map_or(false, |t| t.contains_key(&self.target)),
         }) == self.arg
     }
